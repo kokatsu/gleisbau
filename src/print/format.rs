@@ -385,14 +385,9 @@ pub fn format_oneline(
     let summary = commit.summary().unwrap_or(None).unwrap_or("");
     write!(out, "{} {}", branches, summary).unwrap();
 
-    if let Some(wrap) = wrapping {
-        textwrap::fill(&out, wrap)
-            .lines()
-            .map(|str| str.to_string())
-            .collect()
-    } else {
-        vec![out]
-    }
+    let mut lines = vec![];
+    append_wrapped(&mut lines, out, wrapping);
+    lines
 }
 
 /// Format commit metadata as a multiline string.
@@ -545,11 +540,7 @@ fn append_wrapped(vec: &mut Vec<String>, str: String, wrapping: &Option<Options>
     if str.is_empty() {
         vec.push(str);
     } else if let Some(wrap) = wrapping {
-        vec.extend(
-            textwrap::fill(&str, wrap)
-                .lines()
-                .map(|str| str.to_string()),
-        )
+        vec.extend(wrap_ansi(&str, wrap));
     } else {
         vec.push(str);
     }
@@ -569,4 +560,118 @@ fn remove_empty_lines(lines: &mut Vec<String>, mut line: String) -> String {
         line = lines.remove(lines.len() - 1);
     }
     line
+}
+
+/// Wraps `text` so that every line is self-contained: SGR styling active at a
+/// break is closed at the end of the line and re-opened on the next one.
+/// Otherwise a continuation line loses its color, and an unclosed color bleeds
+/// into the graph column printed after it.
+fn wrap_ansi(text: &str, wrap: &Options) -> Vec<String> {
+    let mut active = String::new();
+    textwrap::wrap(text, wrap)
+        .into_iter()
+        .map(|line| {
+            let mut out = active.clone();
+            out.push_str(&line);
+            update_sgr_state(&line, &mut active);
+            if !active.is_empty() {
+                out.push_str("\x1b[0m");
+            }
+            out
+        })
+        .collect()
+}
+
+/// Appends the SGR sequences in `text` to `active`, clearing it on a reset.
+/// Replaying `active` restores the styling, so attributes like bold and a color
+/// can be stacked without interpreting them. Other CSI sequences (e.g. `\x1b[2K`)
+/// are skipped by stopping at the first byte that is not a parameter byte.
+fn update_sgr_state(text: &str, active: &mut String) {
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] != 0x1b || bytes.get(i + 1) != Some(&b'[') {
+            i += 1;
+            continue;
+        }
+        let start = i;
+        i += 2;
+        while i < bytes.len() && (0x30..=0x3f).contains(&bytes[i]) {
+            i += 1;
+        }
+        if bytes.get(i) != Some(&b'm') {
+            continue;
+        }
+        let params = &text[start + 2..i];
+        if params
+            .split(';')
+            .all(|p| p.trim_start_matches('0').is_empty())
+        {
+            active.clear();
+        } else {
+            active.push_str(&text[start..=i]);
+        }
+        i += 1;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const YELLOW: &str = "\x1b[38;5;11m";
+    const RESET: &str = "\x1b[0m";
+
+    fn wrapped(text: &str, width: usize) -> Vec<String> {
+        let mut lines = vec![];
+        append_wrapped(&mut lines, text.to_string(), &Some(Options::new(width)));
+        lines
+    }
+
+    #[test]
+    fn wrap_ansi_reopens_and_closes_color_across_lines() {
+        let lines = wrapped(
+            &format!("{}[release-3.14.2-hotfix-03]{}", YELLOW, RESET),
+            20,
+        );
+
+        assert!(lines.len() > 1);
+        for line in &lines {
+            assert!(line.starts_with(YELLOW), "{:?}", line);
+            assert!(line.ends_with(RESET), "{:?}", line);
+        }
+    }
+
+    #[test]
+    fn wrap_ansi_leaves_uncolored_continuation_alone() {
+        let lines = wrapped(&format!("{}abc{} def ghi jkl", YELLOW, RESET), 8);
+
+        assert_eq!(lines[0], format!("{}abc{} def", YELLOW, RESET));
+        assert_eq!(lines[1], "ghi jkl");
+    }
+
+    #[test]
+    fn wrap_ansi_keeps_stacked_attributes() {
+        let lines = wrapped(&format!("\x1b[1m{}aaa bbb ccc{}", YELLOW, RESET), 4);
+
+        assert_eq!(lines[1], format!("\x1b[1m{}bbb{}", YELLOW, RESET));
+    }
+
+    #[test]
+    fn update_sgr_state_ignores_other_csi_sequences() {
+        let mut active = String::new();
+        update_sgr_state("\x1b[2Ksome message", &mut active);
+
+        assert_eq!(active, "");
+    }
+
+    #[test]
+    fn update_sgr_state_clears_on_any_reset_form() {
+        for reset in ["\x1b[0m", "\x1b[m", "\x1b[00m"] {
+            let mut active = String::new();
+            update_sgr_state(&format!("{}x{}", YELLOW, reset), &mut active);
+
+            assert_eq!(active, "", "{:?}", reset);
+        }
+    }
 }
