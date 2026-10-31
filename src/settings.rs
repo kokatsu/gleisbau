@@ -63,6 +63,17 @@ pub struct Settings {
     pub branches: BranchSettings,
     /// Regex patterns for finding branch names in merge commit summaries
     pub merge_patterns: MergePatterns,
+    /// Extra styling for the HEAD commit hash
+    pub highlight_head: Option<HighlightHead>,
+}
+
+/// Styling for the HEAD commit hash. Colors are ANSI 256-color indices.
+#[derive(Clone, Default)]
+pub struct HighlightHead {
+    pub bold: bool,
+    /// Foreground color, replacing the default hash color
+    pub color: Option<u8>,
+    pub background: Option<u8>,
 }
 
 /// Helper for reading BranchSettings, required due to RegEx.

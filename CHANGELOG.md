@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [unreleased]
 
+### Added
+
+- settings::HighlightHead and Settings::highlight_head to style the HEAD commit hash.
+
+### Changed
+
+- Breaking: Settings has the new field highlight_head.
+- Breaking: print::format functions take the hash style as `Option<yansi::Style>` instead of a color index.
+
+### Fixed
+
+- ANSI colors were lost on wrapped continuation lines and bled into the graph column.
+
 
 ## [0.7.5] - 2026-08-06
 

@@ -29,13 +29,12 @@ use git2::Commit;
 use git2::Repository;
 use itertools::Itertools;
 use textwrap::Options;
-use yansi::Paint;
+use yansi::{Paint, Style};
 
 use crate::backend::git2::TrackMap;
 use crate::graph::{BranchInfo, CommitInfo, GitGraph, HeadInfo};
 use crate::layout::BranchVis;
 use crate::layout::TrackLayout;
-use crate::print::format::CommitFormat;
 use crate::print::grid::vline;
 use crate::print::grid::zig_zag_line;
 use crate::print::grid::Grid;
@@ -47,7 +46,7 @@ use crate::print::label::list_labels;
 use crate::print::label::Label;
 use crate::print::label::LabelMap;
 use crate::print::label::LabelType;
-use crate::settings::{Characters, Settings};
+use crate::settings::{Characters, HighlightHead, Settings};
 
 // Color index used by yansi
 
@@ -220,16 +219,7 @@ fn build_commit_lines_and_map(
                 .map_err(|err| err.message().to_string())?;
 
             // Format the commit message lines
-            lines = format(
-                &settings.format,
-                layout,
-                &labels,
-                commit,
-                info,
-                head,
-                settings.colored,
-                wrap_options,
-            )?;
+            lines = format(settings, layout, &labels, commit, info, head, wrap_options)?;
         } else {
             lines = vec![];
         }
@@ -960,22 +950,40 @@ fn print_graph_and_text(
 }
 
 /// Format a commit.
-#[allow(clippy::too_many_arguments)]
 fn format(
-    format: &CommitFormat,
+    settings: &Settings,
     layout: &TrackLayout,
     labels: &LabelMap,
     commit: &Commit,
     info: &CommitInfo,
     head: Option<&HeadInfo>,
-    color: bool,
     wrapping: &Option<Options>,
 ) -> Result<Vec<String>, String> {
+    let color = settings.colored;
     let branch_str = format_branches(layout, info, labels, head, color);
 
-    let hash_color = if color { Some(HASH_COLOR) } else { None };
+    let highlight = head.and(settings.highlight_head.as_ref());
+    let style = color.then(|| hash_style(highlight.unwrap_or(&HighlightHead::default())));
 
-    crate::print::format::format_commit_metadata(commit, branch_str, wrapping, hash_color, format)
+    crate::print::format::format_commit_metadata(
+        commit,
+        branch_str,
+        wrapping,
+        style,
+        &settings.format,
+    )
+}
+
+/// Style of a commit hash. The default `HighlightHead` gives the plain hash color.
+fn hash_style(highlight: &HighlightHead) -> Style {
+    let mut style = Style::new().fixed(highlight.color.unwrap_or(HASH_COLOR));
+    if highlight.bold {
+        style = style.bold();
+    }
+    if let Some(background) = highlight.background {
+        style = style.on_fixed(background);
+    }
+    style
 }
 
 /// Build a string listing branches and tag
@@ -1112,5 +1120,32 @@ fn sorted(v1: usize, v2: usize) -> (usize, usize) {
         (v1, v2)
     } else {
         (v2, v1)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hash_style_defaults_to_hash_color() {
+        assert_eq!(
+            hash_style(&HighlightHead::default()),
+            Style::new().fixed(HASH_COLOR)
+        );
+    }
+
+    #[test]
+    fn hash_style_applies_all_highlight_options() {
+        let highlight = HighlightHead {
+            bold: true,
+            color: Some(0),
+            background: Some(11),
+        };
+
+        assert_eq!(
+            hash_style(&highlight),
+            Style::new().fixed(0).bold().on_fixed(11)
+        );
     }
 }

@@ -6,7 +6,7 @@ use lazy_static::lazy_static;
 use std::fmt::Write;
 use std::str::FromStr;
 use textwrap::Options;
-use yansi::Paint;
+use yansi::{Paint, Style};
 
 /// Commit formatting options.
 #[derive(Ord, PartialOrd, Eq, PartialEq)]
@@ -81,7 +81,7 @@ pub fn format_commit(
     commit: &Commit,
     branches: String,
     wrapping: &Option<Options>,
-    hash_color: Option<u8>,
+    hash_style: Option<Style>,
 ) -> Result<Vec<String>, String> {
     // Find replacements
     let mut replacements = vec![];
@@ -108,7 +108,7 @@ pub fn format_commit(
     let mut lines = vec![];
     let mut out = String::new();
     let mut formatter = CommitFieldFormatter::new(
-        commit, &branches, hash_color, wrapping, &mut out, &mut lines,
+        commit, &branches, hash_style, wrapping, &mut out, &mut lines,
     );
 
     let mut curr = 0;
@@ -125,7 +125,7 @@ pub fn format_commit(
 struct CommitFieldFormatter<'a> {
     commit: &'a Commit<'a>,
     branches: &'a str,
-    hash_color: Option<u8>,
+    hash_style: Option<Style>,
     wrapping: &'a Option<Options<'a>>,
     out: &'a mut String,
     lines: &'a mut Vec<String>,
@@ -135,7 +135,7 @@ impl<'a> CommitFieldFormatter<'a> {
     fn new(
         commit: &'a Commit,
         branches: &'a str,
-        hash_color: Option<u8>,
+        hash_style: Option<Style>,
         wrapping: &'a Option<Options>,
         out: &'a mut String,
         lines: &'a mut Vec<String>,
@@ -143,7 +143,7 @@ impl<'a> CommitFieldFormatter<'a> {
         Self {
             commit,
             branches,
-            hash_color,
+            hash_style,
             wrapping,
             out,
             lines,
@@ -208,8 +208,8 @@ impl<'a> CommitFieldFormatter<'a> {
     fn format_hash(&mut self, mode: usize) {
         self.handle_mode(mode, true);
         let id = self.commit.id();
-        if let Some(color) = self.hash_color {
-            self.out.push_str(&id.to_string().fixed(color).to_string());
+        if let Some(style) = self.hash_style {
+            self.out.push_str(&id.to_string().paint(style).to_string());
         } else {
             self.out.push_str(&id.to_string());
         }
@@ -219,8 +219,8 @@ impl<'a> CommitFieldFormatter<'a> {
         self.handle_mode(mode, true);
         let id = self.commit.id().to_string();
         let s = &id[..7];
-        if let Some(color) = self.hash_color {
-            self.out.push_str(&s.fixed(color).to_string());
+        if let Some(style) = self.hash_style {
+            self.out.push_str(&s.paint(style).to_string());
         } else {
             self.out.push_str(s);
         }
@@ -371,12 +371,12 @@ pub fn format_oneline(
     commit: &Commit,
     branches: String,
     wrapping: &Option<Options>,
-    hash_color: Option<u8>,
+    hash_style: Option<Style>,
 ) -> Vec<String> {
     let mut out = String::new();
     let id = commit.id();
-    if let Some(color) = hash_color {
-        write!(out, "{}", id.to_string()[..7].fixed(color))
+    if let Some(style) = hash_style {
+        write!(out, "{}", id.to_string()[..7].paint(style))
     } else {
         write!(out, "{}", &id.to_string()[..7])
     }
@@ -395,13 +395,13 @@ pub fn format_commit_metadata(
     commit: &Commit,
     branches: String,
     wrapping: &Option<Options>,
-    hash_color: Option<u8>,
+    hash_style: Option<Style>,
     format: &CommitFormat,
 ) -> Result<Vec<String>, String> {
     match format {
-        CommitFormat::OneLine => return Ok(format_oneline(commit, branches, wrapping, hash_color)),
+        CommitFormat::OneLine => return Ok(format_oneline(commit, branches, wrapping, hash_style)),
         CommitFormat::Format(format) => {
-            return format_commit(format, commit, branches, wrapping, hash_color)
+            return format_commit(format, commit, branches, wrapping, hash_style)
         }
         _ => {}
     }
@@ -410,8 +410,8 @@ pub fn format_commit_metadata(
     let mut out = String::new();
 
     let id = commit.id();
-    if let Some(color) = hash_color {
-        write!(out, "commit {}", id.to_string().fixed(color))
+    if let Some(style) = hash_style {
+        write!(out, "commit {}", id.to_string().paint(style))
     } else {
         write!(out, "commit {}", id)
     }
